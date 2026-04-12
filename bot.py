@@ -19,7 +19,7 @@ seen_tokens = set()
 
 def get_pumpfun_tokens():
     """Fetch top tokens by volume from DexScreener (public, no auth required) and apply filter criteria."""
-    url = "https://api.dexscreener.com/latest/dex/tokens"
+    url = "https://api.dexscreener.com/latest/dex/search?q=solana"
 
     print(f"🌐 API Request → {url}")
 
@@ -33,42 +33,49 @@ def get_pumpfun_tokens():
         print(f"⚠️ DexScreener request failed: {e}")
         data = {}
 
-    tokens_raw = data.get("tokens", [])
-    print(f"🔢 Tokens returned from API: {len(tokens_raw)}")
+    pairs_raw = data.get("pairs", [])
+    print(f"🔢 Pairs returned from API: {len(pairs_raw)}")
 
     results = []
-    for token in tokens_raw:
+    for pair in pairs_raw:
         try:
-            token_addr = token.get("address", "")
+            # Only process Solana pairs
+            if pair.get("chainId", "") != "solana":
+                continue
+
+            base_token = pair.get("baseToken", {}) or {}
+            token_addr = base_token.get("address", "")
             if not token_addr or token_addr in seen_tokens:
                 continue
 
             # DexScreener volume fields are nested under "volume": {"m5": ..., "h1": ...}
-            volume = token.get("volume", {}) or {}
+            volume = pair.get("volume", {}) or {}
             vol5m = float(volume.get("m5", 0) or 0)
             vol1h = float(volume.get("h1", 0) or 0)
-            mc    = float(token.get("marketCap", 0) or 0)
+            mc    = float(pair.get("marketCap", 0) or 0)
 
             # Price changes are nested under "priceChange": {"m5": ..., "h1": ...}
-            price_change = token.get("priceChange", {}) or {}
+            price_change = pair.get("priceChange", {}) or {}
             price_change_5m = float(price_change.get("m5", 0) or 0)
             price_change_1h = float(price_change.get("h1", 0) or 0)
 
+            symbol = base_token.get("symbol", "?")
+
             if vol5m < MIN_VOLUME_5M:
-                print(f"  ⏭️  [{token.get('symbol', '?')}] Skipped — vol5m ${vol5m:.2f} < ${MIN_VOLUME_5M}")
+                print(f"  ⏭️  [{symbol}] Skipped — vol5m ${vol5m:.2f} < ${MIN_VOLUME_5M}")
                 continue
             if vol1h < MIN_VOLUME_1H:
-                print(f"  ⏭️  [{token.get('symbol', '?')}] Skipped — vol1h ${vol1h:.2f} < ${MIN_VOLUME_1H}")
+                print(f"  ⏭️  [{symbol}] Skipped — vol1h ${vol1h:.2f} < ${MIN_VOLUME_1H}")
                 continue
             if mc < MIN_MARKET_CAP or mc > MAX_MARKET_CAP:
-                print(f"  ⏭️  [{token.get('symbol', '?')}] Skipped — mc ${mc:.2f} out of range [${MIN_MARKET_CAP}, ${MAX_MARKET_CAP}]")
+                print(f"  ⏭️  [{symbol}] Skipped — mc ${mc:.2f} out of range [${MIN_MARKET_CAP}, ${MAX_MARKET_CAP}]")
                 continue
 
-            price = token.get("price", "N/A")
+            price = pair.get("priceUsd", "N/A")
 
             results.append({
-                "name":    token.get("name", "Unknown"),
-                "symbol":  token.get("symbol", "???"),
+                "name":    base_token.get("name", "Unknown"),
+                "symbol":  symbol,
                 "address": token_addr,
                 "price":   str(price) if price != "N/A" else "N/A",
                 "vol5m":   vol5m,
