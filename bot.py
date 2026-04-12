@@ -30,14 +30,21 @@ def get_pumpfun_tokens():
     if BIRDEYE_API_KEY:
         headers["X-API-KEY"] = BIRDEYE_API_KEY
 
+    print(f"🌐 API Request → {url}")
+    print(f"📋 Headers → {headers}")
+
     try:
         r = requests.get(url, headers=headers, timeout=10)
+        raw_text = r.text
+        print(f"📡 HTTP Status: {r.status_code} | Response length: {len(raw_text)} chars")
+        print(f"📄 Raw response (first 500 chars): {raw_text[:500]}")
         data = r.json() if r.status_code == 200 else {}
     except Exception as e:
         print(f"⚠️ Birdeye request failed: {e}")
         data = {}
 
     tokens_raw = data.get("data", {}).get("tokens", [])
+    print(f"🔢 Tokens returned from API: {len(tokens_raw)}")
 
     results = []
     for token in tokens_raw:
@@ -56,10 +63,13 @@ def get_pumpfun_tokens():
             price_change_1h = float(token.get("v1hChangePercent", 0) or 0)
 
             if vol5m < MIN_VOLUME_5M:
+                print(f"  ⏭️  [{token.get('symbol', '?')}] Skipped — vol5m ${vol5m:.2f} < ${MIN_VOLUME_5M}")
                 continue
             if vol1h < MIN_VOLUME_1H:
+                print(f"  ⏭️  [{token.get('symbol', '?')}] Skipped — vol1h ${vol1h:.2f} < ${MIN_VOLUME_1H}")
                 continue
             if mc < MIN_MARKET_CAP or mc > MAX_MARKET_CAP:
+                print(f"  ⏭️  [{token.get('symbol', '?')}] Skipped — mc ${mc:.2f} out of range [${MIN_MARKET_CAP}, ${MAX_MARKET_CAP}]")
                 continue
 
             price = token.get("price", "N/A")
@@ -80,6 +90,7 @@ def get_pumpfun_tokens():
         except Exception:
             continue
 
+    print(f"✅ Tokens passing all filters: {len(results)}")
     return results
 
 def format_number(n):
