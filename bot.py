@@ -120,7 +120,7 @@ def send_discord(token):
     }
 
     try:
-        r = requests.post(https://discordapp.com/api/webhooks/1493001312449593364/nBZ2Wu2ljp0o-FY9Twfui2ykn2y-4ub8JQDgZoFU7jk5leoYQpD-015XDWUnFlM05NGM, json=embed, timeout=10)
+        r = requests.post(DISCORD_WEBHOOK_URL, json=embed, timeout=10)
         if r.status_code in [200, 204]:
             print(f"✅ Envoyé: {token['name']} ({token['symbol']})")
             return True
