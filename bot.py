@@ -13,37 +13,27 @@ MIN_VOLUME_1H = 2500       # Volume minimum 1h en $
 MIN_MARKET_CAP = 1000      # Market cap minimum en $
 MAX_MARKET_CAP = 50000000  # Market cap maximum en $
 CHECK_INTERVAL = 5         # Vérification toutes les 5 secondes
-# Birdeye API key — set BIRDEYE_API_KEY env var for authenticated access (higher rate limits).
-# Leave unset to use the public endpoint (limited but functional).
-BIRDEYE_API_KEY = os.environ.get("BIRDEYE_API_KEY", "")
 # =============================================
 
 seen_tokens = set()
 
 def get_pumpfun_tokens():
-    """Fetch top Solana tokens by 24h volume from Birdeye and apply filter criteria."""
-    url = (
-        "https://public-api.birdeye.so/defi/token_list"
-        "?sort_by=v24hUSD&sort_type=desc&offset=0&limit=50"
-    )
-    headers = {"X-Chain": "solana"}
-    if BIRDEYE_API_KEY:
-        headers["X-API-KEY"] = BIRDEYE_API_KEY
+    """Fetch top tokens by volume from DexScreener (public, no auth required) and apply filter criteria."""
+    url = "https://api.dexscreener.com/latest/dex/tokens"
 
     print(f"🌐 API Request → {url}")
-    print(f"📋 Headers → {headers}")
 
     try:
-        r = requests.get(url, headers=headers, timeout=10)
+        r = requests.get(url, timeout=10)
         raw_text = r.text
         print(f"📡 HTTP Status: {r.status_code} | Response length: {len(raw_text)} chars")
         print(f"📄 Raw response (first 500 chars): {raw_text[:500]}")
         data = r.json() if r.status_code == 200 else {}
     except Exception as e:
-        print(f"⚠️ Birdeye request failed: {e}")
+        print(f"⚠️ DexScreener request failed: {e}")
         data = {}
 
-    tokens_raw = data.get("data", {}).get("tokens", [])
+    tokens_raw = data.get("tokens", [])
     print(f"🔢 Tokens returned from API: {len(tokens_raw)}")
 
     results = []
@@ -53,14 +43,16 @@ def get_pumpfun_tokens():
             if not token_addr or token_addr in seen_tokens:
                 continue
 
-            # Birdeye provides volume in USD for various windows
-            # v5mUSD / v1hUSD are available on the token_list endpoint
-            vol5m = float(token.get("v5mUSD", 0) or 0)
-            vol1h = float(token.get("v1hUSD", 0) or 0)
-            mc    = float(token.get("mc", 0) or 0)
+            # DexScreener volume fields are nested under "volume": {"m5": ..., "h1": ...}
+            volume = token.get("volume", {}) or {}
+            vol5m = float(volume.get("m5", 0) or 0)
+            vol1h = float(volume.get("h1", 0) or 0)
+            mc    = float(token.get("marketCap", 0) or 0)
 
-            price_change_5m = float(token.get("v5mChangePercent", 0) or 0)
-            price_change_1h = float(token.get("v1hChangePercent", 0) or 0)
+            # Price changes are nested under "priceChange": {"m5": ..., "h1": ...}
+            price_change = token.get("priceChange", {}) or {}
+            price_change_5m = float(price_change.get("m5", 0) or 0)
+            price_change_1h = float(price_change.get("h1", 0) or 0)
 
             if vol5m < MIN_VOLUME_5M:
                 print(f"  ⏭️  [{token.get('symbol', '?')}] Skipped — vol5m ${vol5m:.2f} < ${MIN_VOLUME_5M}")
@@ -84,8 +76,8 @@ def get_pumpfun_tokens():
                 "mc":      mc,
                 "change5m": price_change_5m,
                 "change1h": price_change_1h,
-                "dex":     "birdeye",
-                "url":     f"https://birdeye.so/token/{token_addr}?chain=solana",
+                "dex":     "dexscreener",
+                "url":     f"https://dexscreener.com/solana/{token_addr}",
             })
         except Exception:
             continue
@@ -110,8 +102,7 @@ def send_discord(token):
     vol5m_formatted = format_number(token["vol5m"])
     vol1h_formatted = format_number(token["vol1h"])
 
-    birdeye_url = token["url"] or f"https://birdeye.so/token/{token['address']}?chain=solana"
-    dexscreener_url = f"https://dexscreener.com/solana/{token['address']}"
+    dexscreener_url = token["url"] or f"https://dexscreener.com/solana/{token['address']}"
     pump_url = f"https://pump.fun/{token['address']}"
     gmgn_url = f"https://gmgn.ai/sol/token/{token['address']}"
 
@@ -129,8 +120,8 @@ def send_discord(token):
                 {"name": "📊 Vol 1h", "value": vol1h_formatted, "inline": True},
                 {"name": f"{emoji5m} Change 5m", "value": f"{change5m:+.1f}%", "inline": True},
                 {"name": f"{emoji1h} Change 1h", "value": f"{change1h:+.1f}%", "inline": True},
-                {"name": "📡 Source", "value": "Birdeye", "inline": True},
-                {"name": "🔗 Links", "value": f"[Birdeye]({birdeye_url}) • [DexScreener]({dexscreener_url}) • [Pump.fun]({pump_url}) • [GMGN]({gmgn_url})", "inline": False},
+                {"name": "📡 Source", "value": "DexScreener", "inline": True},
+                {"name": "🔗 Links", "value": f"[DexScreener]({dexscreener_url}) • [Pump.fun]({pump_url}) • [GMGN]({gmgn_url})", "inline": False},
                 {"name": "📋 CA", "value": f"`{token['address']}`", "inline": False},
             ],
             "footer": {"text": f"PumpCall BOT • {datetime.utcnow().strftime('%H:%M UTC')}"},
