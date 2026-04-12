@@ -8,47 +8,52 @@ from datetime import datetime
 # CONFIG - À MODIFIER
 # =============================================
 DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1493001312449593364/nBZ2Wu2ljp0o-FY9Twfui2ykn2y-4ub8JQDgZoFU7jk5leoYQpD-015XDWUnFlM05NGM"
-MIN_VOLUME_5M = 1000       # Volume minimum 5min en $
-MIN_VOLUME_1H = 5000      # Volume minimum 1h en $
-MIN_MARKET_CAP = 5000     # Market cap minimum en $
-MAX_MARKET_CAP = 10000000    # Market cap maximum en $
-CHECK_INTERVAL = 5       # Vérification toutes les 5 secondes
+MIN_VOLUME_5M = 500        # Volume minimum 5min en $
+MIN_VOLUME_1H = 2500       # Volume minimum 1h en $
+MIN_MARKET_CAP = 1000      # Market cap minimum en $
+MAX_MARKET_CAP = 50000000  # Market cap maximum en $
+CHECK_INTERVAL = 5         # Vérification toutes les 5 secondes
+# Birdeye API key — set BIRDEYE_API_KEY env var for authenticated access (higher rate limits).
+# Leave unset to use the public endpoint (limited but functional).
+BIRDEYE_API_KEY = os.environ.get("BIRDEYE_API_KEY", "")
 # =============================================
 
 seen_tokens = set()
 
 def get_pumpfun_tokens():
-    url = "https://api.dexscreener.com/token-profiles/latest/v1"
-    try:
-        r = requests.get(url, timeout=10)
-        profiles = r.json() if r.status_code == 200 else []
-    except:
-        profiles = []
+    """Fetch top Solana tokens by 24h volume from Birdeye and apply filter criteria."""
+    url = (
+        "https://public-api.birdeye.so/defi/token_list"
+        "?sort_by=v24hUSD&sort_type=desc&offset=0&limit=50"
+    )
+    headers = {"X-Chain": "solana"}
+    if BIRDEYE_API_KEY:
+        headers["X-API-KEY"] = BIRDEYE_API_KEY
 
-    # Récupère les tokens Solana depuis dexscreener
-    url2 = "https://api.dexscreener.com/latest/dex/search?q=pump"
     try:
-        r2 = requests.get(url2, timeout=10)
-        data = r2.json()
-        pairs = data.get("pairs", [])
-    except:
-        pairs = []
+        r = requests.get(url, headers=headers, timeout=10)
+        data = r.json() if r.status_code == 200 else {}
+    except Exception as e:
+        print(f"⚠️ Birdeye request failed: {e}")
+        data = {}
+
+    tokens_raw = data.get("data", {}).get("tokens", [])
 
     results = []
-    for pair in pairs:
+    for token in tokens_raw:
         try:
-            if pair.get("chainId") != "solana":
+            token_addr = token.get("address", "")
+            if not token_addr or token_addr in seen_tokens:
                 continue
 
-            token_addr = pair.get("baseToken", {}).get("address", "")
-            if token_addr in seen_tokens:
-                continue
+            # Birdeye provides volume in USD for various windows
+            # v5mUSD / v1hUSD are available on the token_list endpoint
+            vol5m = float(token.get("v5mUSD", 0) or 0)
+            vol1h = float(token.get("v1hUSD", 0) or 0)
+            mc    = float(token.get("mc", 0) or 0)
 
-            vol5m = float(pair.get("volume", {}).get("m5", 0) or 0)
-            vol1h = float(pair.get("volume", {}).get("h1", 0) or 0)
-            mc = float(pair.get("marketCap", 0) or 0)
-            price_change_5m = float(pair.get("priceChange", {}).get("m5", 0) or 0)
-            price_change_1h = float(pair.get("priceChange", {}).get("h1", 0) or 0)
+            price_change_5m = float(token.get("v5mChangePercent", 0) or 0)
+            price_change_1h = float(token.get("v1hChangePercent", 0) or 0)
 
             if vol5m < MIN_VOLUME_5M:
                 continue
@@ -57,20 +62,22 @@ def get_pumpfun_tokens():
             if mc < MIN_MARKET_CAP or mc > MAX_MARKET_CAP:
                 continue
 
+            price = token.get("price", "N/A")
+
             results.append({
-                "name": pair.get("baseToken", {}).get("name", "Unknown"),
-                "symbol": pair.get("baseToken", {}).get("symbol", "???"),
+                "name":    token.get("name", "Unknown"),
+                "symbol":  token.get("symbol", "???"),
                 "address": token_addr,
-                "price": pair.get("priceUsd", "N/A"),
-                "vol5m": vol5m,
-                "vol1h": vol1h,
-                "mc": mc,
+                "price":   str(price) if price != "N/A" else "N/A",
+                "vol5m":   vol5m,
+                "vol1h":   vol1h,
+                "mc":      mc,
                 "change5m": price_change_5m,
                 "change1h": price_change_1h,
-                "dex": pair.get("dexId", ""),
-                "url": pair.get("url", ""),
+                "dex":     "birdeye",
+                "url":     f"https://birdeye.so/token/{token_addr}?chain=solana",
             })
-        except:
+        except Exception:
             continue
 
     return results
@@ -92,7 +99,8 @@ def send_discord(token):
     vol5m_formatted = format_number(token["vol5m"])
     vol1h_formatted = format_number(token["vol1h"])
 
-    dex_url = token["url"] or f"https://dexscreener.com/solana/{token['address']}"
+    birdeye_url = token["url"] or f"https://birdeye.so/token/{token['address']}?chain=solana"
+    dexscreener_url = f"https://dexscreener.com/solana/{token['address']}"
     pump_url = f"https://pump.fun/{token['address']}"
     gmgn_url = f"https://gmgn.ai/sol/token/{token['address']}"
 
@@ -110,8 +118,8 @@ def send_discord(token):
                 {"name": "📊 Vol 1h", "value": vol1h_formatted, "inline": True},
                 {"name": f"{emoji5m} Change 5m", "value": f"{change5m:+.1f}%", "inline": True},
                 {"name": f"{emoji1h} Change 1h", "value": f"{change1h:+.1f}%", "inline": True},
-                {"name": "🏦 DEX", "value": token["dex"].upper(), "inline": True},
-                {"name": "🔗 Links", "value": f"[DexScreener]({dex_url}) • [Pump.fun]({pump_url}) • [GMGN]({gmgn_url})", "inline": False},
+                {"name": "📡 Source", "value": "Birdeye", "inline": True},
+                {"name": "🔗 Links", "value": f"[Birdeye]({birdeye_url}) • [DexScreener]({dexscreener_url}) • [Pump.fun]({pump_url}) • [GMGN]({gmgn_url})", "inline": False},
                 {"name": "📋 CA", "value": f"`{token['address']}`", "inline": False},
             ],
             "footer": {"text": f"PumpCall BOT • {datetime.utcnow().strftime('%H:%M UTC')}"},
