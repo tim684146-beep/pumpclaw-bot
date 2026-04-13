@@ -13,7 +13,7 @@ MIN_MARKET_CAP  = 1000
 MAX_MARKET_CAP  = 50_000_000
 MIN_LIQUIDITY   = 5000
 MIN_PAIR_AGE_M  = 1
-CHECK_INTERVAL  = 5
+CHECK_INTERVAL  = 60
 
 MAX_BUNDLER_PCT    = 45.0
 MAX_INSIDER_PCT    = 25.0
@@ -221,7 +221,7 @@ def send_discord(token):
     addr = token["address"]
     embed = {
         "username": "🦞 PumpCall BOT",
-        "avatar_url": "https://pump.fun/favicon.ico",
+        "avatar_url": "https://i.imgur.com/KAhdx5z.png",
         "embeds": [{
             "title": f"🚨 {token['name']} (${token['symbol']})",
             "color": color,
@@ -273,4 +273,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
