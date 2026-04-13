@@ -83,12 +83,18 @@ def check_rugcheck(address, symbol="?"):
             top10_pct = sum(float(h.get("pct", 0) or 0) for h in top_holders[:10]) * 100
             if top10_pct > MAX_TOP10_PCT:
                 return False, f"Top10: {top10_pct:.1f}%"
-        
-          bundler_pct = 0.0
+
+            top1_pct = float(top_holders[0].get("pct", 0) or 0) * 100
+            if top1_pct > 50:
+                return False, f"Top holder: {top1_pct:.1f}%"
+
+        bundler_pct = 0.0
         insider_pct = 0.0
+
         for network in (data.get("insiderNetworks", []) or []):
             n_type = network.get("type", "").lower()
             n_pct  = float(network.get("percentage", 0) or 0)
+
             if "bundle" in n_type:
                 bundler_pct += n_pct
             elif "insider" in n_type or "sniper" in n_type:
@@ -96,19 +102,19 @@ def check_rugcheck(address, symbol="?"):
 
         if bundler_pct > MAX_BUNDLER_PCT:
             return False, f"Bundlers: {bundler_pct:.1f}%"
+
         if insider_pct > MAX_INSIDER_PCT:
             return False, f"Insiders: {insider_pct:.1f}%"
 
         return True, f"OK (score: {score})"
+
     except Exception as e:
         return True, f"Erreur: {e}"
 
 
 def get_all_addresses():
-    """Collecte les adresses depuis toutes les sources disponibles."""
     all_addresses = []
 
-    # SOURCE 1 : tokens boostés/profilés sur DexScreener
     for url in [
         "https://api.dexscreener.com/token-profiles/latest/v1",
         "https://api.dexscreener.com/token-boosts/latest/v1",
@@ -130,7 +136,6 @@ def get_all_addresses():
             pass
         time.sleep(1)
 
-    # SOURCE 2 : tokens Solana tendance (par volume)
     try:
         print("📈 Récupération tokens Solana tendance (volume)...")
         r = requests.get(
@@ -148,7 +153,6 @@ def get_all_addresses():
         print(f"  ⚠️ Tokens tendance erreur: {e}")
     time.sleep(1)
 
-    # SOURCE 3 : pump.fun nouveaux tokens via API publique
     try:
         print("🔥 Récupération tokens pump.fun récents...")
         r = requests.get(
@@ -173,7 +177,6 @@ def get_all_addresses():
 
 
 def process_pairs(all_addresses):
-    """Récupère et filtre les données de marché pour chaque adresse."""
     results = []
 
     for i in range(0, len(all_addresses), 30):
@@ -210,22 +213,19 @@ def process_pairs(all_addresses):
                 if pca and (datetime.utcnow().timestamp()*1000 - pca)/60000 < MIN_PAIR_AGE_M:
                     continue
                 if vol5m < MIN_VOLUME_5M:
-                    print(f"⏭️ [{symbol}] Vol5m too low: {vol5m} (min: {MIN_VOLUME_5M})")
                     continue
                 if vol1h < MIN_VOLUME_1H:
-                    print(f"⏭️ [{symbol}] Vol1h too low: {vol1h} (min: {MIN_VOLUME_1H})")
                     continue
-                if not (MIN_MARKET_CAP <= mc <= MAX_MARKET_CAP): continue
-                if liquidity < MIN_LIQUIDITY: continue
+                if not (MIN_MARKET_CAP <= mc <= MAX_MARKET_CAP): 
+                    continue
+                if liquidity < MIN_LIQUIDITY: 
+                    continue
 
-                print(f"    🔎 [{symbol}] RugCheck...")
                 safe, raison = check_rugcheck(addr, symbol)
                 if not safe:
-                    print(f"    🚫 [{symbol}] Rejeté — {raison}")
                     mark_seen(addr)
                     continue
 
-                print(f"    ✅ [{symbol}] {raison}")
                 mark_seen(addr)
                 time.sleep(0.5)
 
@@ -241,8 +241,8 @@ def process_pairs(all_addresses):
                     "change1h": change1h,
                     "url":      f"https://dexscreener.com/solana/{addr}",
                 })
-            except Exception as e:
-                print(f"    ⚠️ {e}")
+            except:
+                pass
         time.sleep(1)
 
     return results
@@ -260,6 +260,7 @@ def send_discord(token):
     c5, c1 = token["change5m"], token["change1h"]
     color = 0x00ff88 if c5 >= 0 else 0xff4444
     addr = token["address"]
+
     embed = {
         "username": "🦞 PumpCall BOT",
         "avatar_url": "https://pump.fun/favicon.ico",
@@ -267,50 +268,39 @@ def send_discord(token):
             "title": f"🚨 {token['name']} (${token['symbol']})",
             "color": color,
             "fields": [
-                {"name": "💰 Market Cap",                                 "value": fmt(token["mc"]),        "inline": True},
-                {"name": "💧 Liquidité",                                  "value": fmt(token["liquidity"]), "inline": True},
-                {"name": "📊 Vol 5m",                                     "value": fmt(token["vol5m"]),     "inline": True},
-                {"name": "📊 Vol 1h",                                     "value": fmt(token["vol1h"]),     "inline": True},
-                {"name": "🟢 Change 5m" if c5 >= 0 else "🔴 Change 5m", "value": f"{c5:+.1f}%",          "inline": True},
-                {"name": "🟢 Change 1h" if c1 >= 0 else "🔴 Change 1h", "value": f"{c1:+.1f}%",          "inline": True},
-                {"name": "✅ RugCheck",                                   "value": "Vérifié",               "inline": True},
+                {"name": "💰 Market Cap", "value": fmt(token["mc"]), "inline": True},
+                {"name": "💧 Liquidité", "value": fmt(token["liquidity"]), "inline": True},
+                {"name": "📊 Vol 5m", "value": fmt(token["vol5m"]), "inline": True},
+                {"name": "📊 Vol 1h", "value": fmt(token["vol1h"]), "inline": True},
+                {"name": "🟢 Change 5m" if c5 >= 0 else "🔴 Change 5m", "value": f"{c5:+.1f}%", "inline": True},
+                {"name": "🟢 Change 1h" if c1 >= 0 else "🔴 Change 1h", "value": f"{c1:+.1f}%", "inline": True},
                 {"name": "🔗 Links", "value": f"[DexScreener](https://dexscreener.com/solana/{addr}) • [Pump.fun](https://pump.fun/{addr}) • [Axiom](https://axiom.trade/meme/{addr}) • [GMGN](https://gmgn.ai/sol/token/{addr})", "inline": False},
                 {"name": "📋 CA", "value": f"`{addr}`", "inline": False},
             ],
             "footer": {"text": f"PumpCall BOT • {datetime.utcnow().strftime('%H:%M UTC')}"},
         }]
     }
+
     try:
-        r = requests.post(DISCORD_WEBHOOK_URL, json=embed, timeout=10)
-        if r.status_code in [200, 204]:
-            print(f"✅ Callé: {token['name']} | {fmt(token['vol1h'])} vol1h | {fmt(token['mc'])} MC")
-            return True
-        print(f"❌ Discord {r.status_code}")
-    except Exception as e:
-        print(f"❌ {e}")
-    return False
+        requests.post(DISCORD_WEBHOOK_URL, json=embed, timeout=10)
+    except:
+        pass
 
 
 def main():
     init_redis()
     print("🦞 PumpCall BOT démarré !")
-    print(f"🔄 Scan toutes les {CHECK_INTERVAL}s\n")
 
     while True:
-        print(f"\n{'='*50}\n🔍 {datetime.utcnow().strftime('%H:%M:%S UTC')}\n{'='*50}")
-
         all_addresses = get_all_addresses()
         tokens = process_pairs(all_addresses)
 
-        new_count = 0
         for token in tokens:
-            if send_discord(token):
-                new_count += 1
-                time.sleep(1.5)
+            send_discord(token)
+            time.sleep(1.5)
 
-        print(f"\n📊 {new_count} callés ce scan")
-        print(f"⏳ Prochain scan dans {CHECK_INTERVAL}s...")
         time.sleep(CHECK_INTERVAL)
+
 
 if __name__ == "__main__":
     main()
