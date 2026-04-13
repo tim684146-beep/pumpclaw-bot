@@ -12,7 +12,7 @@ MIN_VOLUME_5M = 500        # Volume minimum 5min en $
 MIN_VOLUME_1H = 2500       # Volume minimum 1h en $
 MIN_MARKET_CAP = 1000      # Market cap minimum en $
 MAX_MARKET_CAP = 50000000  # Market cap maximum en $
-CHECK_INTERVAL = 5         # Vérification toutes les 5 secondes
+CHECK_INTERVAL = 3         # Vérification toutes les 3 secondes
 # =============================================
 
 seen_tokens = set()
