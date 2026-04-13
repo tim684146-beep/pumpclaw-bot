@@ -83,11 +83,6 @@ def check_rugcheck(address, symbol="?"):
             top10_pct = sum(float(h.get("pct", 0) or 0) for h in top_holders[:10]) * 100
             if top10_pct > MAX_TOP10_PCT:
                 return False, f"Top10: {top10_pct:.1f}%"
-                
-                if top_holders:
-    top1_pct = float(top_holders[0].get("pct", 0) or 0) * 100
-    if top1_pct > 50:
-        return False, f"Top holder: {top1_pct:.1f}%"
         
           bundler_pct = 0.0
         insider_pct = 0.0
