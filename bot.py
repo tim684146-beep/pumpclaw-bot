@@ -11,8 +11,8 @@ MIN_VOLUME_1H   = 25000       # Volume minimum 1h en $
 MIN_MARKET_CAP  = 1000       # Market cap minimum en $
 MAX_MARKET_CAP  = 50_000_000 # Market cap maximum en $
 MIN_LIQUIDITY   = 5000       # Liquidité minimum en $
-MIN_PAIR_AGE_M  = 3         # Age minimum de la paire en minutes
-CHECK_INTERVAL  = 5        # Scan toutes les 60 secondes
+MIN_PAIR_AGE_M  = 1        # Age minimum de la paire en minutes
+CHECK_INTERVAL  = 5         # Scan toutes les 60 secondes
 SEEN_FILE       = "seen_tokens.txt"
 
 BANNED_FLAGS = [
@@ -226,7 +226,7 @@ def send_discord(token):
 
     embed = {
         "username":   "🦞 PumpCall BOT",
-        "avatar_url": "https://i.imgur.com/wSTFkRM.png",
+        "avatar_url": "https://pump.fun/favicon.ico",
         "embeds": [{
             "title": f"🚨 {token['name']} (${token['symbol']})",
             "color": color,
@@ -242,7 +242,7 @@ def send_discord(token):
                 {"name": "📋 CA", "value": f"`{token['address']}`", "inline": False},
             ],
             "footer":    {"text": f"PumpCall BOT • {datetime.utcnow().strftime('%H:%M UTC')}"},
-            "thumbnail": {"url": "https://i.imgur.com/wSTFkRM.png"}
+            "thumbnail": {"url": "https://pump.fun/favicon.ico"}
         }]
     }
 
