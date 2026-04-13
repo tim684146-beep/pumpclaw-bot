@@ -209,8 +209,12 @@ def process_pairs(all_addresses):
                 pca = pair.get("pairCreatedAt")
                 if pca and (datetime.utcnow().timestamp()*1000 - pca)/60000 < MIN_PAIR_AGE_M:
                     continue
-                if vol5m < MIN_VOLUME_5M: continue
-                if vol1h < MIN_VOLUME_1H: continue
+                if vol5m < MIN_VOLUME_5M:
+                    print(f"⏭️ [{symbol}] Vol5m too low: {vol5m} (min: {MIN_VOLUME_5M})")
+                    continue
+                if vol1h < MIN_VOLUME_1H:
+                    print(f"⏭️ [{symbol}] Vol1h too low: {vol1h} (min: {MIN_VOLUME_1H})")
+                    continue
                 if not (MIN_MARKET_CAP <= mc <= MAX_MARKET_CAP): continue
                 if liquidity < MIN_LIQUIDITY: continue
 
