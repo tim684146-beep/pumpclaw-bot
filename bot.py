@@ -130,11 +130,11 @@ def get_all_addresses():
             pass
         time.sleep(1)
 
-    # SOURCE 2 : nouvelles paires Solana (tokens récents)
+    # SOURCE 2 : tokens Solana tendance (par volume)
     try:
-        print("🆕 Récupération nouvelles paires Solana...")
+        print("📈 Récupération tokens Solana tendance (volume)...")
         r = requests.get(
-            "https://api.dexscreener.com/latest/dex/search?q=solana&rankBy=pairAge&order=asc",
+            "https://api.dexscreener.com/latest/dex/search?q=solana&rankBy=volume&order=desc",
             timeout=10
         )
         if r.status_code == 200:
@@ -145,7 +145,7 @@ def get_all_addresses():
                     if addr and addr not in all_addresses:
                         all_addresses.append(addr)
     except Exception as e:
-        print(f"  ⚠️ Nouvelles paires erreur: {e}")
+        print(f"  ⚠️ Tokens tendance erreur: {e}")
     time.sleep(1)
 
     # SOURCE 3 : pump.fun nouveaux tokens via API publique
