@@ -7,8 +7,8 @@ from datetime import datetime
 # CONFIG
 # =============================================
 DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1493001312449593364/nBZ2Wu2ljp0o-FY9Twfui2ykn2y-4ub8JQDgZoFU7jk5leoYQpD-015XDWUnFlM05NGM"
-MIN_VOLUME_5M   = 6500
-MIN_VOLUME_1H   = 25000
+MIN_VOLUME_5M   = 15000
+MIN_VOLUME_1H   = 250000
 MIN_MARKET_CAP  = 1000
 MAX_MARKET_CAP  = 1_000_000
 MIN_LIQUIDITY   = 5000
@@ -104,8 +104,11 @@ def check_rugcheck(address, symbol="?"):
         return True, f"Erreur: {e}"
 
 
-def get_tokens():
+def get_all_addresses():
+    """Collecte les adresses depuis toutes les sources disponibles."""
     all_addresses = []
+
+    # SOURCE 1 : tokens boostés/profilés sur DexScreener
     for url in [
         "https://api.dexscreener.com/token-profiles/latest/v1",
         "https://api.dexscreener.com/token-boosts/latest/v1",
@@ -127,15 +130,59 @@ def get_tokens():
             pass
         time.sleep(1)
 
-    print(f"📦 {len(all_addresses)} adresses Solana")
-    if not all_addresses:
-        return []
+    # SOURCE 2 : nouvelles paires Solana (tokens récents)
+    try:
+        print("🆕 Récupération nouvelles paires Solana...")
+        r = requests.get(
+            "https://api.dexscreener.com/latest/dex/search?q=solana&rankBy=pairAge&order=asc",
+            timeout=10
+        )
+        if r.status_code == 200:
+            data = r.json()
+            for pair in data.get("pairs", []):
+                if pair.get("chainId") == "solana":
+                    addr = (pair.get("baseToken") or {}).get("address", "")
+                    if addr and addr not in all_addresses:
+                        all_addresses.append(addr)
+    except Exception as e:
+        print(f"  ⚠️ Nouvelles paires erreur: {e}")
+    time.sleep(1)
 
+    # SOURCE 3 : pump.fun nouveaux tokens via API publique
+    try:
+        print("🔥 Récupération tokens pump.fun récents...")
+        r = requests.get(
+            "https://frontend-api.pump.fun/coins?offset=0&limit=50&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        if r.status_code == 200:
+            coins = r.json()
+            if isinstance(coins, list):
+                for coin in coins:
+                    addr = coin.get("mint", "")
+                    if addr and addr not in all_addresses:
+                        all_addresses.append(addr)
+                print(f"  ✅ {len(coins)} tokens pump.fun récupérés")
+    except Exception as e:
+        print(f"  ⚠️ Pump.fun erreur: {e}")
+    time.sleep(1)
+
+    print(f"📦 {len(all_addresses)} adresses Solana au total")
+    return all_addresses
+
+
+def process_pairs(all_addresses):
+    """Récupère et filtre les données de marché pour chaque adresse."""
     results = []
+
     for i in range(0, len(all_addresses), 30):
         batch = all_addresses[i:i+30]
         try:
-            r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{('%2C').join(batch)}", timeout=10)
+            r = requests.get(
+                f"https://api.dexscreener.com/latest/dex/tokens/{('%2C').join(batch)}",
+                timeout=10
+            )
             if r.status_code != 200:
                 continue
             data = r.json()
@@ -179,11 +226,16 @@ def get_tokens():
                 time.sleep(0.5)
 
                 results.append({
-                    "name": base.get("name", "Unknown"), "symbol": symbol,
-                    "address": addr, "vol5m": vol5m, "vol1h": vol1h,
-                    "mc": mc, "liquidity": liquidity,
-                    "change5m": change5m, "change1h": change1h,
-                    "url": f"https://dexscreener.com/solana/{addr}",
+                    "name":     base.get("name", "Unknown"),
+                    "symbol":   symbol,
+                    "address":  addr,
+                    "vol5m":    vol5m,
+                    "vol1h":    vol1h,
+                    "mc":       mc,
+                    "liquidity": liquidity,
+                    "change5m": change5m,
+                    "change1h": change1h,
+                    "url":      f"https://dexscreener.com/solana/{addr}",
                 })
             except Exception as e:
                 print(f"    ⚠️ {e}")
@@ -211,13 +263,13 @@ def send_discord(token):
             "title": f"🚨 {token['name']} (${token['symbol']})",
             "color": color,
             "fields": [
-                {"name": "💰 Market Cap",                                  "value": fmt(token["mc"]),        "inline": True},
-                {"name": "💧 Liquidité",                                   "value": fmt(token["liquidity"]), "inline": True},
-                {"name": "📊 Vol 5m",                                      "value": fmt(token["vol5m"]),     "inline": True},
-                {"name": "📊 Vol 1h",                                      "value": fmt(token["vol1h"]),     "inline": True},
-                {"name": "🟢 Change 5m" if c5 >= 0 else "🔴 Change 5m",  "value": f"{c5:+.1f}%",          "inline": True},
-                {"name": "🟢 Change 1h" if c1 >= 0 else "🔴 Change 1h",  "value": f"{c1:+.1f}%",          "inline": True},
-                {"name": "✅ RugCheck",                                    "value": "Vérifié",               "inline": True},
+                {"name": "💰 Market Cap",                                 "value": fmt(token["mc"]),        "inline": True},
+                {"name": "💧 Liquidité",                                  "value": fmt(token["liquidity"]), "inline": True},
+                {"name": "📊 Vol 5m",                                     "value": fmt(token["vol5m"]),     "inline": True},
+                {"name": "📊 Vol 1h",                                     "value": fmt(token["vol1h"]),     "inline": True},
+                {"name": "🟢 Change 5m" if c5 >= 0 else "🔴 Change 5m", "value": f"{c5:+.1f}%",          "inline": True},
+                {"name": "🟢 Change 1h" if c1 >= 0 else "🔴 Change 1h", "value": f"{c1:+.1f}%",          "inline": True},
+                {"name": "✅ RugCheck",                                   "value": "Vérifié",               "inline": True},
                 {"name": "🔗 Links", "value": f"[DexScreener](https://dexscreener.com/solana/{addr}) • [Pump.fun](https://pump.fun/{addr}) • [Axiom](https://axiom.trade/meme/{addr}) • [GMGN](https://gmgn.ai/sol/token/{addr})", "inline": False},
                 {"name": "📋 CA", "value": f"`{addr}`", "inline": False},
             ],
@@ -242,12 +294,16 @@ def main():
 
     while True:
         print(f"\n{'='*50}\n🔍 {datetime.utcnow().strftime('%H:%M:%S UTC')}\n{'='*50}")
-        tokens = get_tokens()
+
+        all_addresses = get_all_addresses()
+        tokens = process_pairs(all_addresses)
+
         new_count = 0
         for token in tokens:
             if send_discord(token):
                 new_count += 1
                 time.sleep(1.5)
+
         print(f"\n📊 {new_count} callés ce scan")
         print(f"⏳ Prochain scan dans {CHECK_INTERVAL}s...")
         time.sleep(CHECK_INTERVAL)
