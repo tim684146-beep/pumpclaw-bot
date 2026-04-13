@@ -7,8 +7,8 @@ from datetime import datetime
 # CONFIG
 # =============================================
 DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1493001312449593364/nBZ2Wu2ljp0o-FY9Twfui2ykn2y-4ub8JQDgZoFU7jk5leoYQpD-015XDWUnFlM05NGM"
-MIN_VOLUME_5M   = 25000
-MIN_VOLUME_1H   = 60000
+MIN_VOLUME_5M   = 1000
+MIN_VOLUME_1H   = 10000
 MIN_MARKET_CAP  = 1000
 MAX_MARKET_CAP  = 3_000_000
 MIN_LIQUIDITY   = 30000
