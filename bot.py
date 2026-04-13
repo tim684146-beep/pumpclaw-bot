@@ -96,6 +96,7 @@ DEV_WALLETS = [
     "4BdKaxN8G6ka4GYtQQWk4G4dZRUTX2vQH9GcXdBREFUk",
     "3kebnKw7cPdSkLRfiMEALyZJGZ4wdiSRvmoN4rD1yPzV",
     "75GMVrr2xfgAeybuNg1VMHqFE3GTFJLzEHo6xC4MwUzF",
+    "623LJRxYyhE6fpkVbJhF9PwNV2gTCkHgkLjSFFdpump",
 ]
 
 MIN_VOLUME      = 8000
