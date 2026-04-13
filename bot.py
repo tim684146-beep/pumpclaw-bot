@@ -10,17 +10,26 @@ MIN_VOLUME_5M  = 500        # Volume minimum 5min en $
 MIN_VOLUME_1H  = 2500       # Volume minimum 1h en $
 MIN_MARKET_CAP = 1000       # Market cap minimum en $
 MAX_MARKET_CAP = 50_000_000 # Market cap maximum en $
-CHECK_INTERVAL = 5         # Scan toutes les 60 secondes
+CHECK_INTERVAL = 60         # Scan toutes les 60 secondes
+SEEN_FILE      = "seen_tokens.txt"
 # =============================================
 
-seen_tokens = set()
+def load_seen():
+    try:
+        with open(SEEN_FILE, "r") as f:
+            return set(line.strip() for line in f if line.strip())
+    except FileNotFoundError:
+        return set()
+
+def save_seen(addr):
+    with open(SEEN_FILE, "a") as f:
+        f.write(addr + "\n")
+
+seen_tokens = load_seen()
 
 def get_tokens():
-    """Récupère les derniers tokens actifs sur Solana via token-profiles."""
-    
     all_addresses = []
 
-    # ETAPE 1 : récupérer les adresses des tokens récents/actifs
     endpoints = [
         "https://api.dexscreener.com/token-profiles/latest/v1",
         "https://api.dexscreener.com/token-boosts/latest/v1",
@@ -55,7 +64,6 @@ def get_tokens():
     if not all_addresses:
         return []
 
-    # ETAPE 2 : récupérer les données de marché pour ces tokens (par batch de 30)
     results = []
     batch_size = 30
 
@@ -195,6 +203,7 @@ def send_discord(token):
 
 def main():
     print("🦞 PumpCall BOT démarré !")
+    print(f"💾 {len(seen_tokens)} tokens déjà vus chargés depuis {SEEN_FILE}")
     print(f"⚙️  Vol5m min : {format_number(MIN_VOLUME_5M)} | Vol1h min : {format_number(MIN_VOLUME_1H)}")
     print(f"⚙️  MC        : {format_number(MIN_MARKET_CAP)} → {format_number(MAX_MARKET_CAP)}")
     print(f"🔄 Scan toutes les {CHECK_INTERVAL}s\n")
@@ -211,6 +220,7 @@ def main():
             if token["address"] not in seen_tokens:
                 if send_discord(token):
                     seen_tokens.add(token["address"])
+                    save_seen(token["address"])
                     new_count += 1
                     time.sleep(1.5)
 
