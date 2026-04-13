@@ -73,7 +73,6 @@ DEV_WALLETS = [
     "5ZJQSU7YHuDQqtUhL1z65UUuEnaJJ73J3YCBAo9uuTVD",
     "2RH6rUTPBJ9rUDPpuV9b8z1YL56k1tYU6Uk5ZoaEFFSK",
     "CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o",
-    "8YcbyX92UHTU23HZv3ccP9o13qibErQkKaUjoxqxd7SJ",
     "5sNnKuWKUtZkdC1eFNyqz3XHpNoCRQ1D1DfHcNHMV7gn",
     "HYWo71Wk9PNDe5sBaRKazPnVyGnQDiwgXCFKvgAQ1ENp",
     "fag88ZkBfwbbD1cW7PvFvob8N2pNLFRhz4EkcowxvPd",
@@ -98,7 +97,6 @@ DEV_WALLETS = [
     "75GMVrr2xfgAeybuNg1VMHqFE3GTFJLzEHo6xC4MwUzF",
     "623LJRxYyhE6fpkVbJhF9PwNV2gTCkHgkLjSFFdpump",
     "6ujZxnphRxTqveaQtLAQHFoWz16xhLWZbTijcgZN4fRp",
-    "bwamJzztZsepfkteWRChggmXuiiCQvpLqPietdNfSXa",
     "79hZEQNbh8D3zo8u1B2rtVZ1igBGPaBqYpUmSkvBSsd3",
     "CAxg2BNNLa5rEHpM7oY9nr5jsoSsXaDyTgZP5eHcCGHz",
     "H1HtbqBEWVACPkjLbYWWdLQKLsJJonDR4weLHMzEzykd",
@@ -108,11 +106,10 @@ DEV_WALLETS = [
     "FD4uTdPmwTmHvi43Qs6yw9CQYUtXud7njXiJaw1X7K3",
 ]
 
-MIN_VOLUME      = 8000
-MIN_MARKET_CAP  = 1000
-MAX_MARKET_CAP  = 3_000_000
-MIN_LIQUIDITY   = 1000
-CHECK_INTERVAL  = 5
+MIN_MARKET_CAP     = 1000
+MAX_MARKET_CAP     = 3_000_000
+MIN_LIQUIDITY      = 1000
+CHECK_INTERVAL     = 60
 
 MAX_BUNDLER_PCT    = 45.0
 MAX_INSIDER_PCT    = 25.0
@@ -123,6 +120,13 @@ BANNED_FLAGS = [
     "rugpull risk", "honeypot",
     "mint authority enabled", "freeze authority enabled",
     "high holder concentration",
+]
+
+# RPC Solana public — pas besoin de clé API
+SOLANA_RPC_URLS = [
+    "https://api.mainnet-beta.solana.com",
+    "https://solana-api.projectserum.com",
+    "https://rpc.ankr.com/solana",
 ]
 # =============================================
 
@@ -158,9 +162,94 @@ def mark_seen(addr):
         local_seen.add(addr)
 
 
+def rpc_call(payload):
+    """Appelle le RPC Solana avec fallback sur plusieurs endpoints."""
+    for rpc_url in SOLANA_RPC_URLS:
+        try:
+            r = requests.post(rpc_url, json=payload, timeout=15)
+            if r.status_code == 200:
+                return r.json()
+        except:
+            continue
+    return None
+
+
+def get_tokens_from_wallet(wallet_address):
+    """Récupère tous les tokens d'un wallet via RPC Solana public."""
+    tokens = []
+    try:
+        # Récupère tous les token accounts du wallet
+        data = rpc_call({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                wallet_address,
+                {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+                {"encoding": "jsonParsed"}
+            ]
+        })
+
+        if data:
+            accounts = (data.get("result") or {}).get("value", [])
+            for acc in accounts:
+                try:
+                    mint = (
+                        acc.get("account", {})
+                        .get("data", {})
+                        .get("parsed", {})
+                        .get("info", {})
+                        .get("mint", "")
+                    )
+                    if mint and mint not in tokens:
+                        tokens.append(mint)
+                except:
+                    continue
+
+        # Fallback : transactions récentes du wallet
+        if not tokens:
+            data2 = rpc_call({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSignaturesForAddress",
+                "params": [wallet_address, {"limit": 20}]
+            })
+            if data2:
+                sigs = (data2.get("result") or [])
+                for sig_info in sigs[:10]:
+                    sig = sig_info.get("signature", "")
+                    if not sig:
+                        continue
+                    tx_data = rpc_call({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getTransaction",
+                        "params": [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}]
+                    })
+                    if not tx_data:
+                        continue
+                    try:
+                        meta = (tx_data.get("result") or {}).get("meta", {})
+                        for bal in (meta.get("postTokenBalances") or []):
+                            mint = bal.get("mint", "")
+                            if mint and mint not in tokens:
+                                tokens.append(mint)
+                    except:
+                        continue
+                    time.sleep(0.2)
+
+    except Exception as e:
+        print(f"  ⚠️ RPC erreur pour {wallet_address[:8]}...: {e}")
+
+    return tokens
+
+
 def check_rugcheck(address, symbol="?"):
     try:
-        r = requests.get(f"https://api.rugcheck.xyz/v1/tokens/{address}/report", timeout=15)
+        r = requests.get(
+            f"https://api.rugcheck.xyz/v1/tokens/{address}/report",
+            timeout=15
+        )
         if r.status_code == 429:
             return True, "Rate limit"
         if r.status_code != 200:
@@ -206,50 +295,12 @@ def check_rugcheck(address, symbol="?"):
         return True, f"Erreur: {e}"
 
 
-def get_tokens_from_wallet(wallet_address):
-    """Récupère tous les tokens créés par un wallet via Solscan."""
-    tokens = []
-    try:
-        url = f"https://api.solscan.io/v2/account/token-accounts?address={wallet_address}&type=token&page=1&page_size=20"
-        r = requests.get(url, timeout=10, headers={
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json"
-        })
-
-        if r.status_code == 200:
-            data = r.json()
-            items = data.get("data", []) or []
-            for item in items:
-                addr = item.get("tokenAddress", "") or item.get("mint", "")
-                if addr and addr not in tokens:
-                    tokens.append(addr)
-
-        if not tokens:
-            url2 = f"https://api.solscan.io/v2/account/transactions?address={wallet_address}&limit=20"
-            r2 = requests.get(url2, timeout=10, headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "application/json"
-            })
-            if r2.status_code == 200:
-                data2 = r2.json()
-                for tx in (data2.get("data") or []):
-                    for change in (tx.get("tokenBalanceChanges") or []):
-                        addr = change.get("mint", "")
-                        if addr and addr not in tokens:
-                            tokens.append(addr)
-
-    except Exception as e:
-        print(f"  ⚠️ Solscan erreur pour {wallet_address[:8]}...: {e}")
-
-    return tokens
-
-
-def get_dexscreener_data(all_addresses):
-    """Récupère les données de marché sur DexScreener et applique les filtres."""
+def get_dexscreener_data(addresses, wallet):
+    """Récupère les données de marché sur DexScreener."""
     results = []
 
-    for i in range(0, len(all_addresses), 30):
-        batch = all_addresses[i:i+30]
+    for i in range(0, len(addresses), 30):
+        batch = addresses[i:i+30]
         try:
             r = requests.get(
                 f"https://api.dexscreener.com/latest/dex/tokens/{('%2C').join(batch)}",
@@ -304,6 +355,7 @@ def get_dexscreener_data(all_addresses):
                     "liquidity": liquidity,
                     "change5m":  change5m,
                     "change1h":  change1h,
+                    "wallet":    wallet,
                 })
             except:
                 pass
@@ -320,13 +372,14 @@ def fmt(n):
     return f"${n:.0f}"
 
 
-def send_discord(token, wallet):
-    c5, c1 = token["change5m"], token["change1h"]
-    color = 0x00ff88 if c5 >= 0 else 0xff4444
-    addr = token["address"]
+def send_discord(token):
+    c5, c1  = token["change5m"], token["change1h"]
+    color   = 0x00ff88 if c5 >= 0 else 0xff4444
+    addr    = token["address"]
+    wallet  = token["wallet"]
 
     embed = {
-        "username": "🦞 PumpCall BOT",
+        "username":   "🦞 PumpCall BOT",
         "avatar_url": "https://pump.fun/favicon.ico",
         "embeds": [{
             "title": f"🚨 {token['name']} (${token['symbol']})",
@@ -341,8 +394,8 @@ def send_discord(token, wallet):
                 {"name": "🟢 Change 1h" if c1 >= 0 else "🔴 Change 1h", "value": f"{c1:+.1f}%",          "inline": True},
                 {"name": "✅ RugCheck",                                   "value": "Vérifié",               "inline": True},
                 {"name": "🔗 Links", "value": f"[DexScreener](https://dexscreener.com/solana/{addr}) • [Pump.fun](https://pump.fun/{addr}) • [Axiom](https://axiom.trade/meme/{addr}) • [GMGN](https://gmgn.ai/sol/token/{addr})", "inline": False},
-                {"name": "📋 CA",  "value": f"`{addr}`",                                                    "inline": False},
-                {"name": "🔎 Dev", "value": f"[Voir wallet](https://solscan.io/account/{wallet})",          "inline": False},
+                {"name": "📋 CA",    "value": f"`{addr}`",                                                  "inline": False},
+                {"name": "🔎 Dev",   "value": f"[Voir wallet](https://solscan.io/account/{wallet})",        "inline": False},
             ],
             "footer": {"text": f"PumpCall BOT • Dev Tracker • {datetime.utcnow().strftime('%H:%M UTC')}"},
         }]
@@ -362,33 +415,44 @@ def send_discord(token, wallet):
 def main():
     init_redis()
     print("🦞 PumpCall BOT — Dev Tracker démarré !")
-    print(f"👀 Wallets trackés: {len(DEV_WALLETS)}")
-    for w in DEV_WALLETS:
-        print(f"   • {w[:8]}...{w[-4:]}")
+    print(f"👀 {len(DEV_WALLETS)} wallets trackés")
     print(f"🔄 Scan toutes les {CHECK_INTERVAL}s\n")
 
+    # Mémoire des tokens déjà vus par wallet
     wallet_tokens = {w: set() for w in DEV_WALLETS}
+
+    # Premier scan : initialise la mémoire sans call Discord
+    print("⏳ Initialisation — scan initial (pas de call)...")
+    for wallet in DEV_WALLETS:
+        addrs = get_tokens_from_wallet(wallet)
+        wallet_tokens[wallet].update(addrs)
+        print(f"  ✅ {wallet[:8]}...{wallet[-4:]} — {len(addrs)} tokens en mémoire")
+        time.sleep(0.5)
+    print(f"✅ Init terminée — surveillance active !\n")
 
     while True:
         print(f"\n{'='*50}\n🔍 {datetime.utcnow().strftime('%H:%M:%S UTC')}\n{'='*50}")
 
         for wallet in DEV_WALLETS:
-            print(f"\n👛 Scan: {wallet[:8]}...{wallet[-4:]}")
-            token_addresses = get_tokens_from_wallet(wallet)
+            print(f"\n👛 {wallet[:8]}...{wallet[-4:]}")
+            current_tokens = get_tokens_from_wallet(wallet)
 
-            new_addresses = [a for a in token_addresses if a not in wallet_tokens[wallet]]
+            new_addresses = [a for a in current_tokens if a not in wallet_tokens[wallet]]
 
             if not new_addresses:
                 print(f"  ℹ️  Aucun nouveau token")
+                wallet_tokens[wallet].update(current_tokens)
                 continue
 
-            print(f"  🆕 {len(new_addresses)} nouveau(x) token(s) détecté(s) !")
-            wallet_tokens[wallet].update(token_addresses)
+            print(f"  🆕 {len(new_addresses)} nouveau(x) token(s) !")
+            wallet_tokens[wallet].update(current_tokens)
 
-            tokens = get_dexscreener_data(new_addresses)
+            tokens = get_dexscreener_data(new_addresses, wallet)
             for token in tokens:
-                send_discord(token, wallet)
+                send_discord(token)
                 time.sleep(1.5)
+
+            time.sleep(0.5)
 
         print(f"\n⏳ Prochain scan dans {CHECK_INTERVAL}s...")
         time.sleep(CHECK_INTERVAL)
