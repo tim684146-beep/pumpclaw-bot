@@ -111,7 +111,7 @@ DEV_WALLETS = [
 MIN_MARKET_CAP     = 1000
 MAX_MARKET_CAP     = 3_000_000
 MIN_LIQUIDITY      = 1000
-CHECK_INTERVAL     = 120  # 2 minutes pour économiser les requêtes Helius
+CHECK_INTERVAL     = 120
 
 MAX_BUNDLER_PCT    = 45.0
 MAX_INSIDER_PCT    = 25.0
@@ -372,35 +372,52 @@ def main():
 
     wallet_tokens = {w: set() for w in DEV_WALLETS}
 
+    # ── SCAN INITIAL : mémorise tout sans caller ──
     print("⏳ Initialisation — scan initial (pas de call)...")
     for wallet in DEV_WALLETS:
-        addrs = get_tokens_from_wallet(wallet)
-        wallet_tokens[wallet].update(addrs)
-        print(f"  ✅ {wallet[:8]}...{wallet[-4:]} — {len(addrs)} tokens en mémoire")
+        try:
+            addrs = get_tokens_from_wallet(wallet)
+            wallet_tokens[wallet].update(addrs)
+            for a in addrs:
+                mark_seen(a)  # marque comme vus pour ne jamais les caller
+            print(f"  ✅ {wallet[:8]}...{wallet[-4:]} — {len(addrs)} tokens mémorisés")
+        except Exception as e:
+            print(f"  ⚠️ Erreur init {wallet[:8]}: {e}")
         time.sleep(0.3)
-    print(f"✅ Init terminée — surveillance active !\n")
+    print(f"\n✅ Init terminée — {sum(len(v) for v in wallet_tokens.values())} tokens mémorisés au total")
+    print("🟢 Surveillance active !\n")
 
+    # ── BOUCLE PRINCIPALE ──
     while True:
         print(f"\n{'='*50}\n🔍 {datetime.utcnow().strftime('%H:%M:%S UTC')}\n{'='*50}")
 
         for wallet in DEV_WALLETS:
             print(f"\n👛 {wallet[:8]}...{wallet[-4:]}")
-            current_tokens = get_tokens_from_wallet(wallet)
+            try:
+                current_tokens = get_tokens_from_wallet(wallet)
 
-            new_addresses = [a for a in current_tokens if a not in wallet_tokens[wallet]]
+                # Seulement les tokens pas encore vus
+                new_addresses = [
+                    a for a in current_tokens
+                    if a not in wallet_tokens[wallet] and not is_seen(a)
+                ]
 
-            if not new_addresses:
-                print(f"  ℹ️  Aucun nouveau token")
+                # Met à jour la mémoire dans tous les cas
                 wallet_tokens[wallet].update(current_tokens)
-                continue
 
-            print(f"  🆕 {len(new_addresses)} nouveau(x) token(s) !")
-            wallet_tokens[wallet].update(current_tokens)
+                if not new_addresses:
+                    print(f"  ℹ️  Aucun nouveau token")
+                    continue
 
-            tokens = get_dexscreener_data(new_addresses, wallet)
-            for token in tokens:
-                send_discord(token)
-                time.sleep(1.5)
+                print(f"  🆕 {len(new_addresses)} nouveau(x) token(s) détecté(s) !")
+
+                tokens = get_dexscreener_data(new_addresses, wallet)
+                for token in tokens:
+                    send_discord(token)
+                    time.sleep(1.5)
+
+            except Exception as e:
+                print(f"  ⚠️ Erreur wallet {wallet[:8]}: {e}")
 
             time.sleep(0.3)
 
