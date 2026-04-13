@@ -6,12 +6,24 @@ from datetime import datetime
 # CONFIG - À MODIFIER
 # =============================================
 DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1493001312449593364/nBZ2Wu2ljp0o-FY9Twfui2ykn2y-4ub8JQDgZoFU7jk5leoYQpD-015XDWUnFlM05NGM"
-MIN_VOLUME_5M  = 500        # Volume minimum 5min en $
-MIN_VOLUME_1H  = 2500       # Volume minimum 1h en $
-MIN_MARKET_CAP = 1000       # Market cap minimum en $
-MAX_MARKET_CAP = 50_000_000 # Market cap maximum en $
-CHECK_INTERVAL = 60         # Scan toutes les 60 secondes
-SEEN_FILE      = "seen_tokens.txt"
+MIN_VOLUME_5M   = 500        # Volume minimum 5min en $
+MIN_VOLUME_1H   = 2500       # Volume minimum 1h en $
+MIN_MARKET_CAP  = 1000       # Market cap minimum en $
+MAX_MARKET_CAP  = 50_000_000 # Market cap maximum en $
+MIN_LIQUIDITY   = 5000       # Liquidité minimum en $
+MIN_PAIR_AGE_M  = 10         # Age minimum de la paire en minutes
+CHECK_INTERVAL  = 60         # Scan toutes les 60 secondes
+SEEN_FILE       = "seen_tokens.txt"
+
+# RugCheck - flags qui font rejeter le token automatiquement
+BANNED_FLAGS = [
+    "rugpull risk",
+    "honeypot",
+    "mint authority enabled",
+    "freeze authority enabled",
+    "high holder concentration",
+]
+MAX_RUGCHECK_SCORE = 500  # Score de risque maximum (plus c'est haut, plus c'est risqué)
 # =============================================
 
 def load_seen():
@@ -26,6 +38,38 @@ def save_seen(addr):
         f.write(addr + "\n")
 
 seen_tokens = load_seen()
+
+
+def check_rugcheck(address):
+    """Vérifie le token sur RugCheck. Retourne (safe: bool, raison: str)"""
+    url = f"https://api.rugcheck.xyz/v1/tokens/{address}/report/summary"
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            print(f"    ⚠️ RugCheck indisponible (HTTP {r.status_code}) — token accepté par défaut")
+            return True, "RugCheck indisponible"
+
+        data = r.json()
+
+        # Score de risque global
+        score = data.get("score", 0) or 0
+        if score > MAX_RUGCHECK_SCORE:
+            return False, f"Score de risque trop élevé: {score}"
+
+        # Vérification des flags dangereux
+        risks = data.get("risks", []) or []
+        for risk in risks:
+            risk_name = risk.get("name", "").lower()
+            for banned in BANNED_FLAGS:
+                if banned.lower() in risk_name:
+                    return False, f"Flag dangereux: {risk.get('name')}"
+
+        return True, f"OK (score: {score})"
+
+    except Exception as e:
+        print(f"    ⚠️ Erreur RugCheck: {e} — token accepté par défaut")
+        return True, "Erreur RugCheck"
+
 
 def get_tokens():
     all_addresses = []
@@ -105,6 +149,7 @@ def get_tokens():
                 vol5m    = float(volume.get("m5", 0) or 0)
                 vol1h    = float(volume.get("h1", 0) or 0)
                 mc       = float(pair.get("marketCap", 0) or 0)
+                liquidity = float((pair.get("liquidity") or {}).get("usd", 0) or 0)
 
                 price_change = pair.get("priceChange", {}) or {}
                 change5m = float(price_change.get("m5", 0) or 0)
@@ -112,6 +157,15 @@ def get_tokens():
 
                 symbol = base_token.get("symbol", "?")
 
+                # Age de la paire
+                pair_created_at = pair.get("pairCreatedAt", None)
+                if pair_created_at:
+                    age_minutes = (datetime.utcnow().timestamp() * 1000 - pair_created_at) / 60000
+                    if age_minutes < MIN_PAIR_AGE_M:
+                        print(f"    ⏭️  [{symbol}] Trop récent: {age_minutes:.1f} min")
+                        continue
+
+                # Filtres volume, MC, liquidité
                 if vol5m < MIN_VOLUME_5M:
                     print(f"    ⏭️  [{symbol}] vol5m trop bas: ${vol5m:.0f}")
                     continue
@@ -124,20 +178,33 @@ def get_tokens():
                 if mc > MAX_MARKET_CAP:
                     print(f"    ⏭️  [{symbol}] MC trop élevé: ${mc:.0f}")
                     continue
+                if liquidity < MIN_LIQUIDITY:
+                    print(f"    ⏭️  [{symbol}] Liquidité trop basse: ${liquidity:.0f}")
+                    continue
+
+                # RugCheck
+                print(f"    🔎 [{symbol}] Vérification RugCheck...")
+                safe, raison = check_rugcheck(token_addr)
+                if not safe:
+                    print(f"    🚫 [{symbol}] Rejeté — {raison}")
+                    continue
+                print(f"    ✅ [{symbol}] RugCheck: {raison}")
+                time.sleep(0.5)  # anti-spam RugCheck API
 
                 results.append({
-                    "name":     base_token.get("name", "Unknown"),
-                    "symbol":   symbol,
-                    "address":  token_addr,
-                    "price":    str(pair.get("priceUsd", "N/A")),
-                    "vol5m":    vol5m,
-                    "vol1h":    vol1h,
-                    "mc":       mc,
-                    "change5m": change5m,
-                    "change1h": change1h,
-                    "url":      f"https://dexscreener.com/solana/{token_addr}",
+                    "name":      base_token.get("name", "Unknown"),
+                    "symbol":    symbol,
+                    "address":   token_addr,
+                    "price":     str(pair.get("priceUsd", "N/A")),
+                    "vol5m":     vol5m,
+                    "vol1h":     vol1h,
+                    "mc":        mc,
+                    "liquidity": liquidity,
+                    "change5m":  change5m,
+                    "change1h":  change1h,
+                    "url":       f"https://dexscreener.com/solana/{token_addr}",
                 })
-                print(f"    ✅ [{symbol}] Vol1h: ${vol1h:.0f} | MC: ${mc:.0f}")
+                print(f"    🟢 [{symbol}] Vol1h: ${vol1h:.0f} | MC: ${mc:.0f} | Liq: ${liquidity:.0f}")
 
             except Exception as e:
                 print(f"    ⚠️ Erreur parsing: {e}")
@@ -145,7 +212,7 @@ def get_tokens():
 
         time.sleep(1)
 
-    print(f"\n✅ {len(results)} tokens passent les filtres")
+    print(f"\n✅ {len(results)} tokens passent tous les filtres")
     return results
 
 
@@ -175,12 +242,14 @@ def send_discord(token):
             "title": f"🚨 {token['name']} (${token['symbol']})",
             "color": color,
             "fields": [
-                {"name": "💰 Market Cap",       "value": format_number(token["mc"]),    "inline": True},
-                {"name": "📊 Vol 5m",            "value": format_number(token["vol5m"]), "inline": True},
-                {"name": "📊 Vol 1h",            "value": format_number(token["vol1h"]), "inline": True},
-                {"name": f"{emoji5m} Change 5m", "value": f"{change5m:+.1f}%",          "inline": True},
-                {"name": f"{emoji1h} Change 1h", "value": f"{change1h:+.1f}%",          "inline": True},
-                {"name": "💵 Prix",              "value": f"${token['price']}",          "inline": True},
+                {"name": "💰 Market Cap",       "value": format_number(token["mc"]),        "inline": True},
+                {"name": "💧 Liquidité",         "value": format_number(token["liquidity"]), "inline": True},
+                {"name": "📊 Vol 5m",            "value": format_number(token["vol5m"]),     "inline": True},
+                {"name": "📊 Vol 1h",            "value": format_number(token["vol1h"]),     "inline": True},
+                {"name": f"{emoji5m} Change 5m", "value": f"{change5m:+.1f}%",              "inline": True},
+                {"name": f"{emoji1h} Change 1h", "value": f"{change1h:+.1f}%",              "inline": True},
+                {"name": "💵 Prix",              "value": f"${token['price']}",              "inline": True},
+                {"name": "✅ RugCheck",           "value": "Vérifié",                        "inline": True},
                 {"name": "🔗 Links", "value": f"[DexScreener]({dex_url}) • [Axiom]({axiom_url}) • [Terminal]({terminal_url})", "inline": False},
                 {"name": "📋 CA", "value": f"`{token['address']}`", "inline": False},
             ],
@@ -204,8 +273,11 @@ def send_discord(token):
 def main():
     print("🦞 PumpCall BOT démarré !")
     print(f"💾 {len(seen_tokens)} tokens déjà vus chargés depuis {SEEN_FILE}")
-    print(f"⚙️  Vol5m min : {format_number(MIN_VOLUME_5M)} | Vol1h min : {format_number(MIN_VOLUME_1H)}")
-    print(f"⚙️  MC        : {format_number(MIN_MARKET_CAP)} → {format_number(MAX_MARKET_CAP)}")
+    print(f"⚙️  Vol5m min  : {format_number(MIN_VOLUME_5M)} | Vol1h min : {format_number(MIN_VOLUME_1H)}")
+    print(f"⚙️  MC         : {format_number(MIN_MARKET_CAP)} → {format_number(MAX_MARKET_CAP)}")
+    print(f"⚙️  Liquidité  : min {format_number(MIN_LIQUIDITY)}")
+    print(f"⚙️  Age paire  : min {MIN_PAIR_AGE_M} minutes")
+    print(f"⚙️  RugCheck   : score max {MAX_RUGCHECK_SCORE}")
     print(f"🔄 Scan toutes les {CHECK_INTERVAL}s\n")
 
     while True:
