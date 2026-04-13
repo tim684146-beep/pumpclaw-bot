@@ -6,11 +6,11 @@ from datetime import datetime
 # CONFIG - À MODIFIER
 # =============================================
 DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1493001312449593364/nBZ2Wu2ljp0o-FY9Twfui2ykn2y-4ub8JQDgZoFU7jk5leoYQpD-015XDWUnFlM05NGM"
-MIN_VOLUME_5M  = 10000        # Volume minimum 5min en $
-MIN_VOLUME_1H  = 25000       # Volume minimum 1h en $
+MIN_VOLUME_5M  = 500        # Volume minimum 5min en $
+MIN_VOLUME_1H  = 2500       # Volume minimum 1h en $
 MIN_MARKET_CAP = 1000       # Market cap minimum en $
 MAX_MARKET_CAP = 50_000_000 # Market cap maximum en $
-CHECK_INTERVAL = 10         # Scan toutes les 60 secondes
+CHECK_INTERVAL = 60         # Scan toutes les 60 secondes
 # =============================================
 
 seen_tokens = set()
@@ -90,7 +90,6 @@ def get_tokens():
                 if not token_addr or token_addr in seen_tokens:
                     continue
 
-                # Eviter les doublons dans results
                 if any(t["address"] == token_addr for t in results):
                     continue
 
@@ -105,7 +104,6 @@ def get_tokens():
 
                 symbol = base_token.get("symbol", "?")
 
-                # Filtres
                 if vol5m < MIN_VOLUME_5M:
                     print(f"    ⏭️  [{symbol}] vol5m trop bas: ${vol5m:.0f}")
                     continue
@@ -158,9 +156,9 @@ def send_discord(token):
     emoji1h  = "🟢" if change1h >= 0 else "🔴"
     color    = 0x00ff88 if change5m >= 0 else 0xff4444
 
-    dex_url  = token["url"]
-    pump_url = f"https://pump.fun/{token['address']}"
-    gmgn_url = f"https://gmgn.ai/sol/token/{token['address']}"
+    dex_url      = token["url"]
+    axiom_url    = f"https://axiom.trade/meme/{token['address']}"
+    terminal_url = f"https://terminal.jup.ag/swap/SOL-{token['address']}"
 
     embed = {
         "username":   "🦞 PumpCall BOT",
@@ -175,7 +173,7 @@ def send_discord(token):
                 {"name": f"{emoji5m} Change 5m", "value": f"{change5m:+.1f}%",          "inline": True},
                 {"name": f"{emoji1h} Change 1h", "value": f"{change1h:+.1f}%",          "inline": True},
                 {"name": "💵 Prix",              "value": f"${token['price']}",          "inline": True},
-                {"name": "🔗 Links", "value": f"[DexScreener]({dex_url}) • [Pump.fun]({pump_url}) • [GMGN]({gmgn_url})", "inline": False},
+                {"name": "🔗 Links", "value": f"[DexScreener]({dex_url}) • [Axiom]({axiom_url}) • [Terminal]({terminal_url})", "inline": False},
                 {"name": "📋 CA", "value": f"`{token['address']}`", "inline": False},
             ],
             "footer":    {"text": f"PumpCall BOT • {datetime.utcnow().strftime('%H:%M UTC')}"},
