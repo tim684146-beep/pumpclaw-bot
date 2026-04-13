@@ -27,7 +27,6 @@ BANNED_FLAGS = [
 ]
 # =============================================
 
-# --- Redis pour éviter les doublons ---
 REDIS_URL = os.environ.get("REDIS_URL", "")
 redis_client = None
 
@@ -45,7 +44,6 @@ def init_redis():
         print(f"⚠️ Redis erreur: {e} — utilisation mémoire locale")
         redis_client = None
 
-# Fallback mémoire locale si pas de Redis
 local_seen = set()
 
 def is_seen(addr):
@@ -56,38 +54,35 @@ def is_seen(addr):
 def mark_seen(addr):
     if redis_client:
         redis_client.sadd("seen_tokens", addr)
-        redis_client.expire("seen_tokens", 60 * 60 * 24 * 7)  # expire après 7 jours
+        redis_client.expire("seen_tokens", 60 * 60 * 24 * 7)
     else:
         local_seen.add(addr)
 
 
 def check_rugcheck(address, symbol="?"):
-    stats = {"bundler_pct": None, "insider_pct": None, "top10_pct": None, "score": None}
     try:
         r = requests.get(f"https://api.rugcheck.xyz/v1/tokens/{address}/report", timeout=15)
         if r.status_code == 429:
-            return True, "Rate limit", stats
+            return True, "Rate limit"
         if r.status_code != 200:
-            return True, f"HTTP {r.status_code}", stats
+            return True, f"HTTP {r.status_code}"
 
         data = r.json()
         score = data.get("score", 0) or 0
-        stats["score"] = score
         if score > MAX_RUGCHECK_SCORE:
-            return False, f"Score trop élevé: {score}", stats
+            return False, f"Score trop élevé: {score}"
 
         for risk in (data.get("risks", []) or []):
             rname = risk.get("name", "").lower()
             for banned in BANNED_FLAGS:
                 if banned.lower() in rname:
-                    return False, f"Flag: {risk.get('name')}", stats
+                    return False, f"Flag: {risk.get('name')}"
 
         top_holders = data.get("topHolders", []) or []
         if top_holders:
             top10_pct = sum(float(h.get("pct", 0) or 0) for h in top_holders[:10]) * 100
-            stats["top10_pct"] = top10_pct
             if top10_pct > MAX_TOP10_PCT:
-                return False, f"Top10: {top10_pct:.1f}%", stats
+                return False, f"Top10: {top10_pct:.1f}%"
 
         bundler_pct = 0.0
         insider_pct = 0.0
@@ -99,17 +94,14 @@ def check_rugcheck(address, symbol="?"):
             elif "insider" in n_type or "sniper" in n_type:
                 insider_pct += n_pct
 
-        stats["bundler_pct"] = bundler_pct
-        stats["insider_pct"] = insider_pct
-
         if bundler_pct > MAX_BUNDLER_PCT:
-            return False, f"Bundlers: {bundler_pct:.1f}%", stats
+            return False, f"Bundlers: {bundler_pct:.1f}%"
         if insider_pct > MAX_INSIDER_PCT:
-            return False, f"Insiders: {insider_pct:.1f}%", stats
+            return False, f"Insiders: {insider_pct:.1f}%"
 
-        return True, f"OK (score: {score})", stats
+        return True, f"OK (score: {score})"
     except Exception as e:
-        return True, f"Erreur: {e}", stats
+        return True, f"Erreur: {e}"
 
 
 def get_tokens():
@@ -176,7 +168,7 @@ def get_tokens():
                 if liquidity < MIN_LIQUIDITY: continue
 
                 print(f"    🔎 [{symbol}] RugCheck...")
-                safe, raison, rc = check_rugcheck(addr, symbol)
+                safe, raison = check_rugcheck(addr, symbol)
                 if not safe:
                     print(f"    🚫 [{symbol}] Rejeté — {raison}")
                     mark_seen(addr)
@@ -192,10 +184,6 @@ def get_tokens():
                     "mc": mc, "liquidity": liquidity,
                     "change5m": change5m, "change1h": change1h,
                     "url": f"https://dexscreener.com/solana/{addr}",
-                    "rc_score": rc.get("score"),
-                    "bundler_pct": rc.get("bundler_pct"),
-                    "insider_pct": rc.get("insider_pct"),
-                    "top10_pct": rc.get("top10_pct"),
                 })
             except Exception as e:
                 print(f"    ⚠️ {e}")
@@ -211,9 +199,6 @@ def fmt(n):
     if n >= 1_000: return f"${n/1_000:.1f}K"
     return f"${n:.0f}"
 
-def pct(v):
-    return f"{v:.1f}%" if v is not None else "N/A"
-
 
 def send_discord(token):
     c5, c1 = token["change5m"], token["change1h"]
@@ -221,25 +206,22 @@ def send_discord(token):
     addr = token["address"]
     embed = {
         "username": "🦞 PumpCall BOT",
-        "avatar_url": "https://i.imgur.com/KAhdx5z.png",
+        "avatar_url": "https://pump.fun/favicon.ico",
         "embeds": [{
             "title": f"🚨 {token['name']} (${token['symbol']})",
             "color": color,
             "fields": [
-                {"name": "💰 Market Cap",      "value": fmt(token["mc"]),          "inline": True},
-                {"name": "💧 Liquidité",        "value": fmt(token["liquidity"]),   "inline": True},
-                {"name": "📊 Vol 5m",           "value": fmt(token["vol5m"]),       "inline": True},
-                {"name": "📊 Vol 1h",           "value": fmt(token["vol1h"]),       "inline": True},
-                {"name": "🟢 Change 5m" if c5 >= 0 else "🔴 Change 5m", "value": f"{c5:+.1f}%", "inline": True},
-                {"name": "🟢 Change 1h" if c1 >= 0 else "🔴 Change 1h", "value": f"{c1:+.1f}%", "inline": True},
-                {"name": "🤖 Bundlers",         "value": pct(token["bundler_pct"]), "inline": True},
-                {"name": "🕵️ Insiders",        "value": pct(token["insider_pct"]), "inline": True},
-                {"name": "🐳 Top 10 Holders",  "value": pct(token["top10_pct"]),   "inline": True},
-                {"name": "✅ RugCheck",          "value": str(token.get("rc_score","N/A")), "inline": True},
+                {"name": "💰 Market Cap",                                  "value": fmt(token["mc"]),        "inline": True},
+                {"name": "💧 Liquidité",                                   "value": fmt(token["liquidity"]), "inline": True},
+                {"name": "📊 Vol 5m",                                      "value": fmt(token["vol5m"]),     "inline": True},
+                {"name": "📊 Vol 1h",                                      "value": fmt(token["vol1h"]),     "inline": True},
+                {"name": "🟢 Change 5m" if c5 >= 0 else "🔴 Change 5m",  "value": f"{c5:+.1f}%",          "inline": True},
+                {"name": "🟢 Change 1h" if c1 >= 0 else "🔴 Change 1h",  "value": f"{c1:+.1f}%",          "inline": True},
+                {"name": "✅ RugCheck",                                    "value": "Vérifié",               "inline": True},
                 {"name": "🔗 Links", "value": f"[DexScreener](https://dexscreener.com/solana/{addr}) • [Pump.fun](https://pump.fun/{addr}) • [Axiom](https://axiom.trade/meme/{addr}) • [GMGN](https://gmgn.ai/sol/token/{addr})", "inline": False},
                 {"name": "📋 CA", "value": f"`{addr}`", "inline": False},
             ],
-            "footer": {"text": f"Bundlers <{MAX_BUNDLER_PCT}% • Insiders <{MAX_INSIDER_PCT}% • Top10 <{MAX_TOP10_PCT}% • {datetime.utcnow().strftime('%H:%M UTC')}"},
+            "footer": {"text": f"PumpCall BOT • {datetime.utcnow().strftime('%H:%M UTC')}"},
         }]
     }
     try:
@@ -256,7 +238,6 @@ def send_discord(token):
 def main():
     init_redis()
     print("🦞 PumpCall BOT démarré !")
-    print(f"🛡️  Bundlers <{MAX_BUNDLER_PCT}% | Insiders <{MAX_INSIDER_PCT}% | Top10 <{MAX_TOP10_PCT}%")
     print(f"🔄 Scan toutes les {CHECK_INTERVAL}s\n")
 
     while True:
