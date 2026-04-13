@@ -148,26 +148,6 @@ def get_all_addresses():
         print(f"  ⚠️ Nouvelles paires erreur: {e}")
     time.sleep(1)
 
-    # SOURCE 3 : pump.fun nouveaux tokens via API publique
-    try:
-        print("🔥 Récupération tokens pump.fun récents...")
-        r = requests.get(
-            "https://frontend-api.pump.fun/coins?offset=0&limit=50&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
-            timeout=10,
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
-        if r.status_code == 200:
-            coins = r.json()
-            if isinstance(coins, list):
-                for coin in coins:
-                    addr = coin.get("mint", "")
-                    if addr and addr not in all_addresses:
-                        all_addresses.append(addr)
-                print(f"  ✅ {len(coins)} tokens pump.fun récupérés")
-    except Exception as e:
-        print(f"  ⚠️ Pump.fun erreur: {e}")
-    time.sleep(1)
-
     print(f"📦 {len(all_addresses)} adresses Solana au total")
     return all_addresses
 
