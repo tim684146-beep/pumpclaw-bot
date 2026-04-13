@@ -7,6 +7,8 @@ from datetime import datetime
 # CONFIG
 # =============================================
 DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1493001312449593364/nBZ2Wu2ljp0o-FY9Twfui2ykn2y-4ub8JQDgZoFU7jk5leoYQpD-015XDWUnFlM05NGM"
+HELIUS_API_KEY      = "f389b283-e569-484d-a5ad-bc335464f952"
+HELIUS_RPC_URL      = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
 
 DEV_WALLETS = [
     "25atNEyHwGiBgeUGDMiftBgKNDeShuKxaTSJLo5yCSSu",
@@ -109,7 +111,7 @@ DEV_WALLETS = [
 MIN_MARKET_CAP     = 1000
 MAX_MARKET_CAP     = 3_000_000
 MIN_LIQUIDITY      = 1000
-CHECK_INTERVAL     = 5
+CHECK_INTERVAL     = 120  # 2 minutes pour économiser les requêtes Helius
 
 MAX_BUNDLER_PCT    = 45.0
 MAX_INSIDER_PCT    = 25.0
@@ -120,13 +122,6 @@ BANNED_FLAGS = [
     "rugpull risk", "honeypot",
     "mint authority enabled", "freeze authority enabled",
     "high holder concentration",
-]
-
-# RPC Solana public — pas besoin de clé API
-SOLANA_RPC_URLS = [
-    "https://api.mainnet-beta.solana.com",
-    "https://solana-api.projectserum.com",
-    "https://rpc.ankr.com/solana",
 ]
 # =============================================
 
@@ -162,24 +157,11 @@ def mark_seen(addr):
         local_seen.add(addr)
 
 
-def rpc_call(payload):
-    """Appelle le RPC Solana avec fallback sur plusieurs endpoints."""
-    for rpc_url in SOLANA_RPC_URLS:
-        try:
-            r = requests.post(rpc_url, json=payload, timeout=15)
-            if r.status_code == 200:
-                return r.json()
-        except:
-            continue
-    return None
-
-
 def get_tokens_from_wallet(wallet_address):
-    """Récupère tous les tokens d'un wallet via RPC Solana public."""
+    """Récupère tous les tokens d'un wallet via Helius RPC."""
     tokens = []
     try:
-        # Récupère tous les token accounts du wallet
-        data = rpc_call({
+        r = requests.post(HELIUS_RPC_URL, json={
             "jsonrpc": "2.0",
             "id": 1,
             "method": "getTokenAccountsByOwner",
@@ -188,9 +170,10 @@ def get_tokens_from_wallet(wallet_address):
                 {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
                 {"encoding": "jsonParsed"}
             ]
-        })
+        }, timeout=15)
 
-        if data:
+        if r.status_code == 200:
+            data = r.json()
             accounts = (data.get("result") or {}).get("value", [])
             for acc in accounts:
                 try:
@@ -205,41 +188,11 @@ def get_tokens_from_wallet(wallet_address):
                         tokens.append(mint)
                 except:
                     continue
-
-        # Fallback : transactions récentes du wallet
-        if not tokens:
-            data2 = rpc_call({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getSignaturesForAddress",
-                "params": [wallet_address, {"limit": 20}]
-            })
-            if data2:
-                sigs = (data2.get("result") or [])
-                for sig_info in sigs[:10]:
-                    sig = sig_info.get("signature", "")
-                    if not sig:
-                        continue
-                    tx_data = rpc_call({
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "getTransaction",
-                        "params": [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}]
-                    })
-                    if not tx_data:
-                        continue
-                    try:
-                        meta = (tx_data.get("result") or {}).get("meta", {})
-                        for bal in (meta.get("postTokenBalances") or []):
-                            mint = bal.get("mint", "")
-                            if mint and mint not in tokens:
-                                tokens.append(mint)
-                    except:
-                        continue
-                    time.sleep(0.2)
+        else:
+            print(f"  ⚠️ Helius HTTP {r.status_code} pour {wallet_address[:8]}...")
 
     except Exception as e:
-        print(f"  ⚠️ RPC erreur pour {wallet_address[:8]}...: {e}")
+        print(f"  ⚠️ Helius erreur pour {wallet_address[:8]}...: {e}")
 
     return tokens
 
@@ -296,9 +249,7 @@ def check_rugcheck(address, symbol="?"):
 
 
 def get_dexscreener_data(addresses, wallet):
-    """Récupère les données de marché sur DexScreener."""
     results = []
-
     for i in range(0, len(addresses), 30):
         batch = addresses[i:i+30]
         try:
@@ -394,8 +345,8 @@ def send_discord(token):
                 {"name": "🟢 Change 1h" if c1 >= 0 else "🔴 Change 1h", "value": f"{c1:+.1f}%",          "inline": True},
                 {"name": "✅ RugCheck",                                   "value": "Vérifié",               "inline": True},
                 {"name": "🔗 Links", "value": f"[DexScreener](https://dexscreener.com/solana/{addr}) • [Pump.fun](https://pump.fun/{addr}) • [Axiom](https://axiom.trade/meme/{addr}) • [GMGN](https://gmgn.ai/sol/token/{addr})", "inline": False},
-                {"name": "📋 CA",    "value": f"`{addr}`",                                                  "inline": False},
-                {"name": "🔎 Dev",   "value": f"[Voir wallet](https://solscan.io/account/{wallet})",        "inline": False},
+                {"name": "📋 CA",  "value": f"`{addr}`",                                                    "inline": False},
+                {"name": "🔎 Dev", "value": f"[Voir wallet](https://solscan.io/account/{wallet})",          "inline": False},
             ],
             "footer": {"text": f"PumpCall BOT • Dev Tracker • {datetime.utcnow().strftime('%H:%M UTC')}"},
         }]
@@ -415,19 +366,18 @@ def send_discord(token):
 def main():
     init_redis()
     print("🦞 PumpCall BOT — Dev Tracker démarré !")
+    print(f"⚡ Helius RPC activé")
     print(f"👀 {len(DEV_WALLETS)} wallets trackés")
     print(f"🔄 Scan toutes les {CHECK_INTERVAL}s\n")
 
-    # Mémoire des tokens déjà vus par wallet
     wallet_tokens = {w: set() for w in DEV_WALLETS}
 
-    # Premier scan : initialise la mémoire sans call Discord
     print("⏳ Initialisation — scan initial (pas de call)...")
     for wallet in DEV_WALLETS:
         addrs = get_tokens_from_wallet(wallet)
         wallet_tokens[wallet].update(addrs)
         print(f"  ✅ {wallet[:8]}...{wallet[-4:]} — {len(addrs)} tokens en mémoire")
-        time.sleep(0.5)
+        time.sleep(0.3)
     print(f"✅ Init terminée — surveillance active !\n")
 
     while True:
@@ -452,7 +402,7 @@ def main():
                 send_discord(token)
                 time.sleep(1.5)
 
-            time.sleep(0.5)
+            time.sleep(0.3)
 
         print(f"\n⏳ Prochain scan dans {CHECK_INTERVAL}s...")
         time.sleep(CHECK_INTERVAL)
