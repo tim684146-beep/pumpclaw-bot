@@ -106,6 +106,14 @@ DEV_WALLETS = [
     "CshBQzeUCNAGSTtF55j73TXPuEKheSLTtGPCQFFPvjGi",
     "C2RosgbFvpcc5Ew64tsAihFsomAvyeL1i4KcAcZvBfxr",
     "FD4uTdPmwTmHvi43Qs6yw9CQYUtXud7njXiJaw1X7K3",
+    "DVRk9cTvWJFVPwvQGsW8bZBqSebT2qvjx7kPDSmGzspw",
+    "Fqa3Pbjj3H1beC1fpWXr8ga5WwU4RsAd2JcZFkwyFRPm",
+    "5ZuV8eqkvzYFVEKbLvGBdexL2tFv7E5BCd2HZpjqbdg",
+    "9QjmneKYTTWpRpKKf4VGqX48koBfe2MX6qCU35QFeHTP",
+    "29c2twR1XNxJqTZpEiJFxfXY35UhoeLCvVKoUXkfVLNC",
+    "CfkigDD8ig77boQNw9pqXMYaBu14XekugqzgeupGoJU6",
+    "FD4uTdPmwTmHvi43Qs6yw9CQYUtXud7njXiJaw1X7K3",
+    "CXVaRVx2hVGUtveSFvdU4Cpo6kUmd6GHvPGhjgZn912c",
 ]
 
 MIN_MARKET_CAP     = 1000
