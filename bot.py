@@ -305,7 +305,7 @@ def get_dexscreener_data(addresses, wallet):
 
                 print(f"    ✅ [{symbol}] {raison}")
                 mark_seen(addr)
-                time.sleep(0.5)
+                time.sleep(1)  # Increased from 0.5 to 1 second
 
                 results.append({
                     "name":      base.get("name", "Unknown"),
@@ -394,7 +394,7 @@ def main():
             print(f"  ✅ {wallet[:8]}...{wallet[-4:]} — {len(addrs)} tokens mémorisés")
         except Exception as e:
             print(f"  ⚠️ Erreur init {wallet[:8]}: {e}")
-        time.sleep(0.3)
+        time.sleep(1)  # Increased from 0.3 to 1 second
     print(f"\n✅ Init terminée — {sum(len(v) for v in wallet_tokens.values())} tokens mémorisés au total")
     print("🟢 Surveillance active !\n")
 
@@ -430,7 +430,7 @@ def main():
             except Exception as e:
                 print(f"  ⚠️ Erreur wallet {wallet[:8]}: {e}")
 
-            time.sleep(0.3)
+            time.sleep(1)  # Increased from 0.3 to 1 second
 
         print(f"\n⏳ Prochain scan dans {CHECK_INTERVAL}s...")
         time.sleep(CHECK_INTERVAL)
