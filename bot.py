@@ -114,6 +114,8 @@ DEV_WALLETS = [
     "CfkigDD8ig77boQNw9pqXMYaBu14XekugqzgeupGoJU6",
     "FD4uTdPmwTmHvi43Qs6yw9CQYUtXud7njXiJaw1X7K3",
     "CXVaRVx2hVGUtveSFvdU4Cpo6kUmd6GHvPGhjgZn912c",
+    "DetXn4fLxAaQdHrU9S7MB8FCZ5fnhWMMrit9XNSQvqfP",
+    "GRejg5d8bzCNNsjKjmDUCTrQ9YAJLSUZaVhtjdsidXay",
 ]
 
 MIN_MARKET_CAP     = 1000
