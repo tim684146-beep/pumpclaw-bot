@@ -3,12 +3,12 @@ import time
 import os
 from datetime import datetime
 
-# =============================================
+# =============================================    Example = you're information
 # CONFIG
 # =============================================
-DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1493001312449593364/nBZ2Wu2ljp0o-FY9Twfui2ykn2y-4ub8JQDgZoFU7jk5leoYQpD-015XDWUnFlM05NGM"
-HELIUS_API_KEY      = "f389b283-e569-484d-a5ad-bc335464f952"
-HELIUS_RPC_URL      = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
+DISCORD_WEBHOOK_URL = "Example"
+HELIUS_API_KEY      = "Example"
+HELIUS_RPC_URL      = f"Example"
 
 DEV_WALLETS = [
     "25atNEyHwGiBgeUGDMiftBgKNDeShuKxaTSJLo5yCSSu",
